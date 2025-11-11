@@ -26,22 +26,40 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                                     FilterChain filterChain)
             throws ServletException, IOException {
 
+        String path = request.getServletPath();
+
+        // Bỏ qua xác thực cho các endpoint public
+        if (path.startsWith("/api/auth") ||
+                path.startsWith("/swagger-ui") ||
+                path.startsWith("/v3/api-docs") ||
+                path.startsWith("/error")) {
+            filterChain.doFilter(request, response);
+            return;
+        }
+
         String header = request.getHeader("Authorization");
 
-        if (header != null && header.startsWith("Bearer ")) {
-            String token = header.substring(7);
+        try {
+            if (header != null && header.startsWith("Bearer ")) {
+                String token = header.substring(7);
 
-            if (jwtTokenProvider.validateToken(token)) {
-                String phone = jwtTokenProvider.getPhoneFromToken(token);
-                String role = jwtTokenProvider.getRoleFromToken(token);
+                if (jwtTokenProvider.validateToken(token)) {
+                    String phone = jwtTokenProvider.getPhoneFromToken(token);
+                    String role = jwtTokenProvider.getRoleFromToken(token);
 
-                // Gắn quyền hạn vào SecurityContext
-                SimpleGrantedAuthority authority = new SimpleGrantedAuthority("ROLE_" + role);
-                UsernamePasswordAuthenticationToken authentication =
-                        new UsernamePasswordAuthenticationToken(phone, null, Collections.singletonList(authority));
+                    SimpleGrantedAuthority authority =
+                            new SimpleGrantedAuthority("ROLE_" + role);
 
-                SecurityContextHolder.getContext().setAuthentication(authentication);
+                    UsernamePasswordAuthenticationToken authentication =
+                            new UsernamePasswordAuthenticationToken(
+                                    phone, null, Collections.singletonList(authority)
+                            );
+
+                    SecurityContextHolder.getContext().setAuthentication(authentication);
+                }
             }
+        } catch (Exception e) {
+            System.err.println("Lỗi khi xử lý JWT: " + e.getMessage());
         }
 
         filterChain.doFilter(request, response);

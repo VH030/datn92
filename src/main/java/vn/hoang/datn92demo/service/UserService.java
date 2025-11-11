@@ -28,14 +28,16 @@ public class UserService {
         }
 
         User user = new User();
-        user.setFullName(dto.getUsername());
+        user.setUsername(dto.getUsername());
+        user.setFullName(dto.getFullName());
         user.setEmail(dto.getEmail());
         user.setPhone(dto.getPhone());
         user.setPassword(passwordEncoder.encode(dto.getPassword()));
-        user.setRole(User.Role.USER); // Mặc định quyền USER
+        user.setRole(User.Role.USER); // mặc định là USER
 
         return userRepository.save(user);
     }
+
     public User findByPhone(String phone) {
         return userRepository.findByPhone(phone).orElse(null);
     }
