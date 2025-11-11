@@ -18,7 +18,7 @@ import vn.hoang.datn92demo.service.UserService;
 
 @RestController
 @RequestMapping("/api/auth")
-@Tag(name = "Authentication", description = "API đăng ký và đăng nhập người dùng (có OTP)")
+@Tag(name = "Authentication", description = "API đăng ký và đăng nhập người dùng (có OTP + phân quyền)")
 @CrossOrigin(origins = "*")
 public class AuthController {
 
@@ -59,16 +59,28 @@ public class AuthController {
         return ResponseEntity.badRequest().body("OTP không hợp lệ hoặc đã hết hạn!");
     }
 
-
-    @Operation(summary = "Đăng nhập người dùng (nhận JWT Token)")
+    @Operation(summary = "Đăng nhập ")
     @PostMapping("/login")
-    public ResponseEntity<String> login(@Valid @RequestBody UserLoginRequestDTO dto) {
+    public ResponseEntity<?> login(@Valid @RequestBody UserLoginRequestDTO dto) {
+        // Xác thực username/password
         Authentication authentication = authenticationManager.authenticate(
                 new UsernamePasswordAuthenticationToken(dto.getPhone(), dto.getPassword())
         );
 
         SecurityContextHolder.getContext().setAuthentication(authentication);
-        String token = jwtTokenProvider.generateToken(dto.getPhone());
-        return ResponseEntity.ok(token);
+
+        // Lấy thông tin user từ DB
+        User user = userService.findByPhone(dto.getPhone());
+        if (user == null) {
+            return ResponseEntity.badRequest().body("Không tìm thấy người dùng!");
+        }
+
+        // Tạo token kèm role
+        String token = jwtTokenProvider.generateToken(user.getPhone(), user.getRole().name());
+
+        // Trả về cả token và vai trò
+        return ResponseEntity.ok(
+                String.format("Token: %s\nRole: %s", token, user.getRole().name())
+        );
     }
 }

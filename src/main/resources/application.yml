@@ -11,9 +11,9 @@ spring:
     time-zone: Asia/Ho_Chi_Minh
   jpa:
     hibernate:
-      ddl-auto: update     # Tự động tạo bảng nếu chưa có
+      ddl-auto: update
     show-sql: true
-    open-in-view: false    # Tắt cảnh báo open-in-view
+    open-in-view: false
     properties:
       hibernate:
         format_sql: true

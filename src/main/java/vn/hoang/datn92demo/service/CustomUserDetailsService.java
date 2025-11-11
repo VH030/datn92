@@ -7,8 +7,6 @@ import org.springframework.stereotype.Service;
 import vn.hoang.datn92demo.model.User;
 import vn.hoang.datn92demo.repository.UserRepository;
 
-import java.util.Collections;
-
 @Service
 public class CustomUserDetailsService implements UserDetailsService {
 
@@ -23,16 +21,11 @@ public class CustomUserDetailsService implements UserDetailsService {
         User user = userRepository.findByPhone(phone)
                 .orElseThrow(() -> new UsernameNotFoundException("Không tìm thấy người dùng với số điện thoại: " + phone));
 
-        // Trả về UserDetails để Spring Security xác thực
+        // Thêm tiền tố ROLE_ để Spring Security hiểu đúng quyền
         return org.springframework.security.core.userdetails.User
                 .withUsername(user.getPhone())
                 .password(user.getPassword())
-                .authorities(Collections.emptyList())
-                .accountLocked(false)
-                .accountExpired(false)
-                .credentialsExpired(false)
-                .disabled(false)
+                .authorities("ROLE_" + user.getRole().name())
                 .build();
     }
 }
-

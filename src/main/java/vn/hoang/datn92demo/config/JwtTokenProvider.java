@@ -11,7 +11,7 @@ import java.util.Date;
 @Component
 public class JwtTokenProvider {
 
-    private static final String JWT_SECRET = "kTJhWQ93LsG8pMxNwAeTnXzK9VrYcBpFqD5G7H9J2L3Q8W4R6E7T9U2V5Y6Z8A1B"; // nên >= 32 ký tự
+    private static final String JWT_SECRET = "kTJhWQ93LsG8pMxNwAeTnXzK9VrYcBpFqD5G7H9J2L3Q8W4R6E7T9U2V5Y6Z8A1B"; // >= 32 ký tự
     private static final long JWT_EXPIRATION = 86400000L; // 1 ngày
 
     private SecretKey getSigningKey() {
@@ -20,12 +20,13 @@ public class JwtTokenProvider {
     }
 
     // Tạo token
-    public String generateToken(String phone) {
+    public String generateToken(String phone, String role) {
         Date now = new Date();
         Date expiryDate = new Date(now.getTime() + JWT_EXPIRATION);
 
         return Jwts.builder()
                 .setSubject(phone)
+                .claim("role", role)
                 .setIssuedAt(now)
                 .setExpiration(expiryDate)
                 .signWith(getSigningKey(), SignatureAlgorithm.HS512)
@@ -39,10 +40,18 @@ public class JwtTokenProvider {
                 .build()
                 .parseClaimsJws(token)
                 .getBody();
-
         return claims.getSubject();
     }
 
+    //  Lấy role từ token
+    public String getRoleFromToken(String token) {
+        Claims claims = Jwts.parserBuilder()
+                .setSigningKey(getSigningKey())
+                .build()
+                .parseClaimsJws(token)
+                .getBody();
+        return claims.get("role", String.class);
+    }
 
     // Xác thực token
     public boolean validateToken(String token) {
