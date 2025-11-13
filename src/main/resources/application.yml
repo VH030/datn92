@@ -41,4 +41,3 @@ twilio:
   auth-token: ${TWILIO_AUTH_TOKEN}
   phone-number: "+17755998198"
 
-

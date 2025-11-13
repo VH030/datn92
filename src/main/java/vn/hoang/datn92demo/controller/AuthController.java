@@ -12,14 +12,17 @@ import org.springframework.web.bind.annotation.*;
 import vn.hoang.datn92demo.config.JwtTokenProvider;
 import vn.hoang.datn92demo.dto.request.UserLoginRequestDTO;
 import vn.hoang.datn92demo.dto.request.UserRegisterRequestDTO;
+import vn.hoang.datn92demo.dto.request.VerifyOtpRequestDTO;
 import vn.hoang.datn92demo.model.User;
 import vn.hoang.datn92demo.service.OtpService;
 import vn.hoang.datn92demo.service.UserService;
 
+import java.util.Map;
+
 @RestController
 @RequestMapping("/api/auth")
 @Tag(name = "Authentication", description = "API đăng ký và đăng nhập người dùng (có OTP + phân quyền)")
-@CrossOrigin(origins = "*")
+@CrossOrigin(origins = "http://localhost:9000")
 public class AuthController {
 
     private final UserService userService;
@@ -39,48 +42,87 @@ public class AuthController {
 
     @Operation(summary = "Gửi OTP xác thực khi đăng ký tài khoản")
     @PostMapping("/register")
-    public ResponseEntity<String> register(@Valid @RequestBody UserRegisterRequestDTO dto) {
+    public ResponseEntity<?> register(@Valid @RequestBody UserRegisterRequestDTO dto) {
         if (userService.existsByPhone(dto.getPhone())) {
-            return ResponseEntity.badRequest().body("Số điện thoại đã tồn tại!");
+            return ResponseEntity.badRequest().body(Map.of(
+                    "success", false,
+                    "message", "Số điện thoại đã tồn tại!"
+            ));
         }
         otpService.sendOtp(dto.getPhone());
-        return ResponseEntity.ok("Đã gửi OTP đến số điện thoại: " + dto.getPhone());
+        return ResponseEntity.ok(Map.of(
+                "success", true,
+                "message", "Đã gửi OTP đến số điện thoại: " + dto.getPhone()
+        ));
     }
 
-    @Operation(summary = "Xác minh OTP để hoàn tất đăng ký")
+    @Operation(summary = "Xác minh OTP để hoàn tất đăng ký (body JSON)")
     @PostMapping("/verify-otp")
-    public ResponseEntity<String> verifyOtp(@RequestParam String phone,
-                                            @RequestParam String otp,
-                                            @Valid @RequestBody UserRegisterRequestDTO dto) {
-        if (otpService.verifyOtp(phone, otp)) {
-            User user = userService.register(dto);
-            return ResponseEntity.ok("Đăng ký thành công cho số: " + user.getPhone());
+    public ResponseEntity<?> verifyOtp(@Valid @RequestBody VerifyOtpRequestDTO dto) {
+        // kiểm tra OTP
+        if (!otpService.verifyOtp(dto.getPhone(), dto.getOtp())) {
+            return ResponseEntity.badRequest().body(Map.of(
+                    "success", false,
+                    "message", "OTP không hợp lệ hoặc đã hết hạn!"
+            ));
         }
-        return ResponseEntity.badRequest().body("OTP không hợp lệ hoặc đã hết hạn!");
+
+        // tạo UserRegisterRequestDTO từ VerifyOtpRequestDTO (tái sử dụng logic register)
+        UserRegisterRequestDTO regDto = new UserRegisterRequestDTO();
+        regDto.setUsername(dto.getUsername());
+        regDto.setFullName(dto.getFullName());
+        regDto.setEmail(dto.getEmail());
+        regDto.setPhone(dto.getPhone());
+        regDto.setPassword(dto.getPassword());
+
+        User user = userService.register(regDto);
+        return ResponseEntity.ok(Map.of(
+                "success", true,
+                "message", "Đăng ký thành công!",
+                "user", Map.of(
+                        "id", user.getId(),
+                        "fullname", user.getFullName(),
+                        "phone", user.getPhone(),
+                        "role", user.getRole().name()
+                )
+        ));
     }
 
-    @Operation(summary = "Đăng nhập ")
+    @Operation(summary = "Đăng nhập người dùng")
     @PostMapping("/login")
     public ResponseEntity<?> login(@Valid @RequestBody UserLoginRequestDTO dto) {
-        // Xác thực username/password
-        Authentication authentication = authenticationManager.authenticate(
-                new UsernamePasswordAuthenticationToken(dto.getPhone(), dto.getPassword())
-        );
+        try {
+            Authentication authentication = authenticationManager.authenticate(
+                    new UsernamePasswordAuthenticationToken(dto.getPhone(), dto.getPassword())
+            );
+            SecurityContextHolder.getContext().setAuthentication(authentication);
 
-        SecurityContextHolder.getContext().setAuthentication(authentication);
+            User user = userService.findByPhone(dto.getPhone());
+            if (user == null) {
+                return ResponseEntity.badRequest().body(Map.of(
+                        "success", false,
+                        "message", "Không tìm thấy người dùng!"
+                ));
+            }
 
-        // Lấy thông tin user từ DB
-        User user = userService.findByPhone(dto.getPhone());
-        if (user == null) {
-            return ResponseEntity.badRequest().body("Không tìm thấy người dùng!");
+            String token = jwtTokenProvider.generateToken(user.getPhone(), user.getRole().name());
+
+            return ResponseEntity.ok(Map.of(
+                    "success", true,
+                    "token", token,
+                    "role", user.getRole().name(),
+                    "user", Map.of(
+                            "id", user.getId(),
+                            "fullname", user.getFullName(),
+                            "phone", user.getPhone(),
+                            "role", user.getRole().name()
+                    )
+            ));
+        } catch (Exception e) {
+            return ResponseEntity.status(401).body(Map.of(
+                    "success", false,
+                    "message", "Sai số điện thoại hoặc mật khẩu!"
+            ));
         }
-
-        // Tạo token kèm role
-        String token = jwtTokenProvider.generateToken(user.getPhone(), user.getRole().name());
-
-        // Trả về cả token và vai trò
-        return ResponseEntity.ok(
-                String.format("Token: %s\nRole: %s", token, user.getRole().name())
-        );
     }
 }
