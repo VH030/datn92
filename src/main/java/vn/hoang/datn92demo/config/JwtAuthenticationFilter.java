@@ -4,6 +4,8 @@ import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
@@ -16,6 +18,8 @@ import java.util.Collections;
 
 @Component
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
+
+    private static final Logger logger = LoggerFactory.getLogger(JwtAuthenticationFilter.class);
 
     @Autowired
     private JwtTokenProvider jwtTokenProvider;
@@ -45,21 +49,32 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
                 if (jwtTokenProvider.validateToken(token)) {
                     String phone = jwtTokenProvider.getPhoneFromToken(token);
-                    String role = jwtTokenProvider.getRoleFromToken(token);
+                    String roleFromToken = jwtTokenProvider.getRoleFromToken(token); // có thể "ADMIN" hoặc "ROLE_ADMIN"
 
-                    SimpleGrantedAuthority authority =
-                            new SimpleGrantedAuthority("ROLE_" + role);
+                    if (roleFromToken == null || roleFromToken.isBlank()) {
+                        logger.warn("Token không có role claim (token principal: {})", phone);
+                    } else {
+                        // Nếu role đã có prefix "ROLE_" thì không thêm nữa
+                        String authorityRole = roleFromToken.startsWith("ROLE_") ? roleFromToken : ("ROLE_" + roleFromToken);
 
-                    UsernamePasswordAuthenticationToken authentication =
-                            new UsernamePasswordAuthenticationToken(
-                                    phone, null, Collections.singletonList(authority)
-                            );
+                        SimpleGrantedAuthority authority = new SimpleGrantedAuthority(authorityRole);
 
-                    SecurityContextHolder.getContext().setAuthentication(authentication);
+                        // principal hiện là phone — ensure consistency: controllers use authentication.getName() expecting phone
+                        UsernamePasswordAuthenticationToken authentication =
+                                new UsernamePasswordAuthenticationToken(
+                                        phone, null, Collections.singletonList(authority)
+                                );
+
+                        SecurityContextHolder.getContext().setAuthentication(authentication);
+
+                        logger.debug("Set authentication for principal={}, authorities={}", phone, Collections.singletonList(authorityRole));
+                    }
+                } else {
+                    logger.debug("JWT token không hợp lệ hoặc hết hạn");
                 }
             }
         } catch (Exception e) {
-            System.err.println("Lỗi khi xử lý JWT: " + e.getMessage());
+            logger.error("Lỗi khi xử lý JWT: {}", e.getMessage(), e);
         }
 
         filterChain.doFilter(request, response);
