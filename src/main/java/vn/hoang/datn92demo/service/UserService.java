@@ -6,6 +6,7 @@ import vn.hoang.datn92demo.dto.request.UserAdminRequestDTO;
 import vn.hoang.datn92demo.dto.request.UserRegisterRequestDTO;
 import vn.hoang.datn92demo.dto.request.UserUpdateRequestDTO;
 import vn.hoang.datn92demo.dto.request.ChangePasswordRequestDTO;
+import vn.hoang.datn92demo.exception.ResourceNotFoundException;
 import vn.hoang.datn92demo.model.User;
 import vn.hoang.datn92demo.repository.UserRepository;
 
@@ -94,7 +95,12 @@ public class UserService {
         return userRepository.save(user);
     }
 
+
+    //delete user
     public void deleteUser(Long id) {
+        if (!userRepository.existsById(id)) {
+            throw new ResourceNotFoundException("Không tìm thấy user id " + id);
+        }
         userRepository.deleteById(id);
     }
 

@@ -1,6 +1,7 @@
-package vn.hoang.datn92demo.controller.admin;
+package vn.hoang.datn92demo.controller;
 
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import vn.hoang.datn92demo.dto.request.UserAdminRequestDTO;
 import vn.hoang.datn92demo.dto.response.UserAdminResponseDTO;
@@ -21,6 +22,7 @@ public class UserAdminController {
 
     // Danh sách tất cả user (không hiển thị mật khẩu)
     @GetMapping
+    @PreAuthorize("hasRole('ADMIN')")
     public List<UserAdminResponseDTO> getAllUsers() {
         return userService.getAllUsers().stream()
                 .map(UserAdminResponseDTO::new)
@@ -29,6 +31,7 @@ public class UserAdminController {
 
     // Xem thông tin 1 user
     @GetMapping("/{id}")
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<UserAdminResponseDTO> getUserById(@PathVariable Long id) {
         return userService.getUserById(id)
                 .map(UserAdminResponseDTO::new)
@@ -38,6 +41,7 @@ public class UserAdminController {
 
     // Cập nhật thông tin user (admin không đổi được mật khẩu user)
     @PutMapping("/{id}")
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<UserAdminResponseDTO> updateUser(@PathVariable Long id, @RequestBody UserAdminRequestDTO dto) {
         try {
             User updatedUser = userService.updateUserAsAdmin(id, dto);
@@ -47,10 +51,12 @@ public class UserAdminController {
         }
     }
 
-    // Xóa user
+    // Xóa user (hard delete)
     @DeleteMapping("/{id}")
-    public ResponseEntity<String> deleteUser(@PathVariable Long id) {
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<Void> deleteUser(@PathVariable Long id) {
         userService.deleteUser(id);
-        return ResponseEntity.ok("Đã xóa user");
+        // trả 204 No Content khi xóa thành công
+        return ResponseEntity.noContent().build();
     }
 }

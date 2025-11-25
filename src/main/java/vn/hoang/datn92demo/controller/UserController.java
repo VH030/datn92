@@ -1,5 +1,6 @@
 package vn.hoang.datn92demo.controller.user;
 
+import io.swagger.v3.oas.annotations.Operation;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
@@ -23,6 +24,7 @@ public class UserController {
     /**
      * Lấy profile của chính user (dựa trên phone từ token)
      */
+    @Operation(summary = "User tự xem thông tin của mình ")
     @GetMapping("/me")
     public ResponseEntity<UserAdminResponseDTO> getMyProfile(Authentication authentication) {
         String phone = authentication.getName();   // Token đang lưu phone
@@ -38,6 +40,7 @@ public class UserController {
     /**
      * Cập nhật thông tin user
      */
+    @Operation(summary = "User tự cập nhật thông tin của mình ")
     @PutMapping("/me")
     public ResponseEntity<?> updateMyProfile(Authentication authentication,
                                              @Valid @RequestBody UserUpdateRequestDTO dto) {
@@ -60,6 +63,7 @@ public class UserController {
     /**
      * Đổi mật khẩu user
      */
+    @Operation(summary = "User tự đổi mật khẩu của mình ")
     @PutMapping("/me/password")
     public ResponseEntity<?> changePassword(Authentication authentication,
                                             @Valid @RequestBody ChangePasswordRequestDTO dto) {

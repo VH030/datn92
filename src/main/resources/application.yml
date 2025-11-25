@@ -41,3 +41,13 @@ twilio:
   account-sid: ${TWILIO_ACCOUNT_SID}
   auth-token: ${TWILIO_AUTH_TOKEN}
   phone-number: "+17755998198"
+
+modem:
+  port: "COM13"       # Cổng modem E173
+  baudRate: 115200   # Tốc độ chuẩn của Huawei
+  openTimeoutMs: 2000
+  writeDelayMs: 500
+
+app:
+  device:
+    api-key:

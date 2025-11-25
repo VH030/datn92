@@ -5,6 +5,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
+import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -17,6 +18,7 @@ import org.springframework.web.cors.CorsConfigurationSource;
 import java.util.Arrays;
 
 @Configuration
+@EnableMethodSecurity // cho phép dùng @PreAuthorize ở controller/service nếu cần
 public class SecurityConfig {
 
     @Autowired
@@ -39,7 +41,7 @@ public class SecurityConfig {
         config.setAllowedOrigins(Arrays.asList("http://localhost:9000", "http://localhost:8080"));
         config.setAllowCredentials(true); // cho phép gửi cookie / Authorization header
         config.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
-        config.setAllowedHeaders(Arrays.asList("Authorization", "Content-Type", "Accept", "Origin"));
+        config.setAllowedHeaders(Arrays.asList("Authorization", "Content-Type", "Accept", "Origin", "X-API-KEY"));
         config.setExposedHeaders(Arrays.asList("Authorization", "Content-Type"));
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
@@ -53,12 +55,16 @@ public class SecurityConfig {
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
                 .csrf(csrf -> csrf.disable())
                 .authorizeHttpRequests(auth -> auth
+                        // Các endpoint public (không cần JWT)
                         .requestMatchers(
                                 "/swagger-ui/**",
                                 "/swagger-ui.html",
                                 "/v3/api-docs/**",
-                                "/api/auth/**"
+                                "/api/auth/**",
+                                "/api/water-levels/device" // endpoint dành cho thiết bị (ESP32) sử dụng API-KEY
                         ).permitAll()
+                        // Các endpoint liên quan đến water-levels (không phải /device) cần ROLE_USER hoặc ROLE_ADMIN
+                        .requestMatchers("/api/water-levels/user/**").hasAnyRole("USER","ADMIN")
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")
                         .requestMatchers("/api/user/**").hasAnyRole("USER", "ADMIN")
                         .anyRequest().authenticated()
