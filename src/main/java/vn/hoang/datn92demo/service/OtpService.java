@@ -86,56 +86,100 @@ public class OtpService {
         port.setNumDataBits(8);
         port.setNumStopBits(SerialPort.ONE_STOP_BIT);
         port.setParity(SerialPort.NO_PARITY);
-        port.setComPortTimeouts(SerialPort.TIMEOUT_READ_SEMI_BLOCKING, openTimeoutMs, 0);
+        // non-blocking, ta tự loop chờ
+        port.setComPortTimeouts(SerialPort.TIMEOUT_NONBLOCKING, 0, 0);
+
+        if (!port.openPort()) {
+            System.err.println("Không mở được cổng " + modemPort);
+            return false;
+        }
 
         try {
-            if (!port.openPort()) {
-                System.err.println("Không mở được cổng " + modemPort);
-                return false;
-            }
-
-            // Give modem a little time to be ready
-            Thread.sleep(300);
-
             OutputStream out = port.getOutputStream();
             InputStream in = port.getInputStream();
 
-            // Utility: send AT and wait short
-            sendCommand(out, in, "AT", 500);
-            sendCommand(out, in, "ATE0", 200); // tắt echo nếu muốn (ATE1 bật echo)
-            sendCommand(out, in, "AT+CMGF=1", 500); // text mode
-            sendCommand(out, in, "AT+CSCS=\"GSM\"", 300); // charset
-            // Optionally set SMSC: AT+CSCA="+849xxxxxxxx" (nếu nhà mạng yêu cầu)
+            // 1. Khởi tạo modem
+            sendRaw(out, "AT\r");
+            Thread.sleep(200);
+            System.out.println("RESP AT: " + readAll(in));
 
-            // Start send
+            sendRaw(out, "ATE0\r"); // tắt echo
+            Thread.sleep(200);
+            System.out.println("RESP ATE0: " + readAll(in));
+
+            sendRaw(out, "AT+CMGF=1\r"); // text mode
+            Thread.sleep(300);
+            System.out.println("RESP CMGF: " + readAll(in));
+
+            // ⚠️ QUAN TRỌNG: set SMS params (DCS) để tránh CMS ERROR 500
+            sendRaw(out, "AT+CSMP=17,167,0,0\r");
+            Thread.sleep(300);
+            System.out.println("RESP CSMP: " + readAll(in));
+
+            // Kiểm tra SMSC (chỉ để debug/log)
+            sendRaw(out, "AT+CSCA?\r");
+            Thread.sleep(300);
+            System.out.println("RESP CSCA?: " + readAll(in));
+
+            // 2. Gửi lệnh CMGS và chờ prompt '>'
             sendRaw(out, "AT+CMGS=\"" + phone + "\"\r");
-            Thread.sleep(300); // wait for '>' prompt - not strictly guaranteed
 
-            // send message text + Ctrl+Z
-            sendRaw(out, text + "\u001A");
-            Thread.sleep(2000 + writeDelayMs); // chờ modem gửi
+            final int promptTimeoutMs = 8000;
+            int waited = 0;
+            boolean gotPrompt = false;
+            while (waited < promptTimeoutMs) {
+                String r = readAll(in);
+                if (r != null && !r.isEmpty()) {
+                    System.out.println("RESP waiting for > : " + r);
+                    if (r.contains(">")) { // modem sẵn sàng nhận nội dung
+                        gotPrompt = true;
+                        break;
+                    }
+                    if (r.contains("ERROR") || r.contains("CMS ERROR") || r.contains("NO CARRIER")) {
+                        System.err.println("Lỗi trước prompt: " + r);
+                        return false;
+                    }
+                }
+                Thread.sleep(200);
+                waited += 200;
+            }
 
-            // Read available response for debugging
-            String response = readAll(in);
-            if (response != null && (response.contains("OK") || response.contains("+CMGS"))) {
-                return true;
-            } else {
-                System.err.println("Phản hồi modem khi gửi SMS: " + response);
+            if (!gotPrompt) {
+                System.err.println("Không nhận được '>' prompt từ modem (timeout). Snapshot: " + readAll(in));
                 return false;
             }
-        } finally {
-            // close port to free COM for other apps; nếu muốn giữ mở, bỏ dòng này
-            if (port.isOpen()) {
-                port.closePort();
-            }
-        }
-    }
 
-    private void sendCommand(OutputStream out, InputStream in, String cmd, int waitMs) throws Exception {
-        sendRaw(out, cmd + "\r");
-        Thread.sleep(waitMs);
-        // optionally read response for logging
-        readAll(in);
+            // 3. Gửi nội dung + Ctrl+Z
+            sendRaw(out, text + "\u001A");
+            System.out.println("Đã gửi payload, chờ kết quả...");
+
+            // 4. Chờ +CMGS / CMS ERROR
+            final int resultTimeoutMs = 30000;
+            waited = 0;
+            StringBuilder accum = new StringBuilder();
+            while (waited < resultTimeoutMs) {
+                String r = readAll(in);
+                if (r != null && !r.isEmpty()) {
+                    accum.append(r);
+                    System.out.println("RESP chunk: " + r);
+                    if (accum.indexOf("+CMGS:") >= 0 || accum.indexOf("OK") >= 0) {
+                        System.out.println("SMS gửi thành công, response: " + accum);
+                        return true;
+                    }
+                    if (accum.indexOf("CMS ERROR") >= 0 || accum.indexOf("ERROR") >= 0) {
+                        System.err.println("Modem trả lỗi khi gửi SMS: " + accum);
+                        return false;
+                    }
+                }
+                Thread.sleep(500);
+                waited += 500;
+            }
+
+            System.err.println("Hết timeout chờ kết quả. Accumulated response: " + accum);
+            return false;
+        } finally {
+            if (port.isOpen()) port.closePort();
+        }
     }
 
     private void sendRaw(OutputStream out, String payload) throws Exception {
@@ -147,24 +191,20 @@ public class OtpService {
         StringBuilder sb = new StringBuilder();
         byte[] buffer = new byte[1024];
         int available;
-        // read what's available (non-blocking due to semi-blocking timeouts)
         while ((available = in.available()) > 0) {
             int r = in.read(buffer, 0, Math.min(buffer.length, available));
             if (r > 0) {
                 sb.append(new String(buffer, 0, r, StandardCharsets.UTF_8));
-                // small sleep to gather more bytes
-                Thread.sleep(100);
+                Thread.sleep(50);
             } else {
                 break;
             }
         }
         String s = sb.length() == 0 ? null : sb.toString();
-        // You can uncomment next line for debugging
-        // System.out.println("MODEM RAW RESPONSE: " + s);
         return s;
     }
 
-    // --- Phone normalization ---
+    // --- Chuẩn hóa số điện thoại ---
     /**
      * Chuẩn hóa số điện thoại đầu vào:
      * - Nếu bắt đầu bằng 0 -> chuyển thành +84...
@@ -182,9 +222,8 @@ public class OtpService {
 
         if (s.isEmpty()) return s;
 
-        // If already starts with +, keep plus sign and ensure country code present
+        // If already starts with +, keep plus sign
         if (s.startsWith("+")) {
-            // Common case +8498123...
             return s;
         }
 

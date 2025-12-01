@@ -50,4 +50,4 @@ modem:
 
 app:
   device:
-    api-key:
+    api-key: "123456ABC"

@@ -23,4 +23,5 @@ public interface DeviceRepository extends JpaRepository<Device, Long> {
 
     // Tùy chọn: query mặc định của JPA (không fetch join)
     List<Device> findByArea_Id(Long areaId);
+
 }
