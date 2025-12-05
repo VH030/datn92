@@ -7,12 +7,16 @@ import org.springframework.transaction.annotation.Transactional;
 import vn.hoang.datn92demo.dto.request.WaterLevelRequestDTO;
 import vn.hoang.datn92demo.model.WaterLevel;
 import vn.hoang.datn92demo.model.DeviceSubscription;
+import vn.hoang.datn92demo.model.Device;
+import vn.hoang.datn92demo.model.Area;
 import vn.hoang.datn92demo.repository.WaterLevelRepository;
 import vn.hoang.datn92demo.repository.DeviceSubscriptionRepository;
 
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Pattern;
 
 @Service
@@ -23,6 +27,13 @@ public class WaterLevelService {
     private final WaterLevelRepository repository;
     private final DeviceSubscriptionRepository deviceSubscriptionRepository;
     private final NotificationService notificationService;
+
+    // cooldown chống spam SMS: WARNING vs ALARM
+    private static final long WARNING_COOLDOWN_MS = 30 * 60 * 1000L; // 30 phút
+    private static final long ALARM_COOLDOWN_MS = 10 * 60 * 1000L;   // 10 phút
+
+    // key: userId:deviceId -> lastSentMillis
+    private final Map<String, Long> lastSentMap = new ConcurrentHashMap<>();
 
     public WaterLevelService(WaterLevelRepository repository,
                              DeviceSubscriptionRepository deviceSubscriptionRepository,
@@ -35,6 +46,43 @@ public class WaterLevelService {
     private static final Pattern ALERT_PATTERN =
             Pattern.compile("^(NORMAL|WARNING|ALARM)(?:_(ENTER|EXIT|UP|DOWN|PERIODIC))?$",
                     Pattern.CASE_INSENSITIVE);
+
+    /**
+     * Chỉ gửi SMS khi BẮT ĐẦU vào vùng WARNING hoặc ALARM.
+     * (WARNING_ENTER, ALARM_ENTER)
+     */
+    private boolean shouldNotify(String alertType) {
+        if (alertType == null || alertType.isBlank()) return false;
+        String t = alertType.trim().toUpperCase();
+
+        return "WARNING_ENTER".equals(t) || "ALARM_ENTER".equals(t);
+    }
+
+    /**
+     * Chống spam: chỉ cho gửi nếu đã qua cooldown cho (user, device).
+     */
+    private boolean canSendFor(DeviceSubscription sub, WaterLevel wl) {
+        if (sub.getUser() == null || sub.getUser().getId() == null
+                || sub.getDevice() == null || sub.getDevice().getId() == null) {
+            return true; // không đủ thông tin, cho gửi (hoặc log cảnh báo)
+        }
+
+        String alertType = wl.getAlertType() != null ? wl.getAlertType().toUpperCase() : "";
+        long cooldown = alertType.startsWith("ALARM") ? ALARM_COOLDOWN_MS : WARNING_COOLDOWN_MS;
+
+        String key = sub.getUser().getId() + ":" + sub.getDevice().getId();
+        long now = System.currentTimeMillis();
+        Long last = lastSentMap.get(key);
+
+        if (last != null && now - last < cooldown) {
+            logger.debug("Bỏ qua SMS cho userId={} deviceId={} vì đang trong cooldown ({} ms còn lại)",
+                    sub.getUser().getId(), sub.getDevice().getId(), (cooldown - (now - last)));
+            return false;
+        }
+
+        lastSentMap.put(key, now);
+        return true;
+    }
 
     @Transactional
     public WaterLevel save(WaterLevelRequestDTO dto) {
@@ -64,16 +112,25 @@ public class WaterLevelService {
 
         // --- Gửi thông báo cho user theo dõi device (nếu cần) ---
         try {
-            // chỉ notify khi alertType khác NORMAL (tuỳ policy bạn có thể notify cả NORMAL_PERIODIC nếu muốn)
-            if (!"NORMAL".equalsIgnoreCase(saved.getAlertType())) {
+            if (shouldNotify(saved.getAlertType())) {
                 String deviceIdentifier = saved.getDeviceId();
-                List<DeviceSubscription> subs = deviceSubscriptionRepository.findByDeviceDeviceIdWithUserAndDevice(deviceIdentifier);
+                List<DeviceSubscription> subs =
+                        deviceSubscriptionRepository.findByDeviceDeviceIdWithUserAndDevice(deviceIdentifier);
 
                 if (subs != null && !subs.isEmpty()) {
-                    String message = buildMessageFor(saved);
                     for (DeviceSubscription s : subs) {
-                        if (s.getUser() != null && s.getUser().getPhone() != null && !s.getUser().getPhone().isBlank()) {
+                        if (s.getUser() != null
+                                && s.getUser().getPhone() != null
+                                && !s.getUser().getPhone().isBlank()) {
+
+                            // kiểm tra cooldown cho từng user-device
+                            if (!canSendFor(s, saved)) {
+                                continue;
+                            }
+
                             String phone = s.getUser().getPhone();
+                            String message = buildMessageFor(saved, s);
+
                             try {
                                 notificationService.sendSms(phone, message);
                             } catch (Exception ex) {
@@ -92,13 +149,53 @@ public class WaterLevelService {
         return saved;
     }
 
-    private String buildMessageFor(WaterLevel wl) {
-        StringBuilder sb = new StringBuilder();
-        sb.append("Cảnh báo mực nước - thiết bị ").append(wl.getDeviceId())
-                .append(" | mực=").append(wl.getLevel())
-                .append(" | loại=").append(wl.getAlertType())
-                .append(" | lúc=").append(formatDate(wl.getTimestamp()));
-        return sb.toString();
+    /**
+     * Tạo nội dung SMS thân thiện cho từng subscriber.
+     */
+    private String buildMessageFor(WaterLevel wl, DeviceSubscription sub) {
+        Device device = sub.getDevice();
+        String deviceName = wl.getDeviceId();
+        String areaName = "khong ro khu vuc";
+
+        if (device != null) {
+            if (device.getName() != null && !device.getName().isBlank()) {
+                deviceName = device.getName();
+            }
+            Area area = device.getArea();
+            if (area != null && area.getName() != null && !area.getName().isBlank()) {
+                areaName = area.getName();
+            }
+        }
+
+        String statusLabel = friendlyAlertLabel(wl.getAlertType());
+        String timeStr = formatDate(wl.getTimestamp());
+        String levelStr = (wl.getLevel() != null)
+                ? String.format("%.1f", wl.getLevel())
+                : "n/a";
+
+        // 1 DÒNG NGẮN, KHÔNG DẤU
+        String msg = String.format(
+                "[CANH BAO] %s - %s: muc %scm, trang thai %s, luc %s",
+                deviceName, areaName, levelStr, statusLabel, timeStr
+        );
+
+        // Cắt bớt nếu quá dài (phòng trường hợp tên thiết bị/khu vực quá dài)
+        if (msg.length() > 150) {
+            msg = msg.substring(0, 150);
+        }
+
+        return msg;
+    }
+
+
+    private String friendlyAlertLabel(String alertType) {
+        if (alertType == null) return "khong ro";
+        String t = alertType.toUpperCase();
+
+        if (t.startsWith("ALARM")) return "BAO DONG";
+        if (t.startsWith("WARNING")) return "CANH BAO";
+        if (t.startsWith("NORMAL")) return "BINH THUONG";
+        return t;
     }
 
     public List<WaterLevel> getAll() {
