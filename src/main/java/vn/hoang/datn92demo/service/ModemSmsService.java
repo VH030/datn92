@@ -2,6 +2,7 @@ package vn.hoang.datn92demo.service;
 
 import com.fazecast.jSerialComm.SerialPort;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
 import java.io.InputStream;
@@ -25,6 +26,7 @@ public class ModemSmsService implements NotificationService {
     private int writeDelayMs;
 
     @Override
+    @Async("smsExecutor")
     public void sendSms(String rawPhone, String text) {
         String phone = normalizePhone(rawPhone);
         if (phone == null || phone.isBlank()) {
@@ -32,7 +34,7 @@ public class ModemSmsService implements NotificationService {
             return;
         }
 
-        // Chuẩn hóa nội dung: bỏ dấu, bỏ ký tự lạ, giới hạn độ dài
+        // Chuẩn hóa/bỏ dấu để tránh lỗi encode
         String safeText = sanitizeGsmText(text);
 
         try {
@@ -47,6 +49,7 @@ public class ModemSmsService implements NotificationService {
             e.printStackTrace();
         }
     }
+
 
     // ====== Core modem logic (dùng chung cho mọi SMS) ======
     private boolean sendSmsViaModem(String phone, String text) throws Exception {
