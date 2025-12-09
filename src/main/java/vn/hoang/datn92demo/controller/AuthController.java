@@ -16,6 +16,9 @@ import vn.hoang.datn92demo.dto.request.VerifyOtpRequestDTO;
 import vn.hoang.datn92demo.model.User;
 import vn.hoang.datn92demo.service.OtpService;
 import vn.hoang.datn92demo.service.UserService;
+import vn.hoang.datn92demo.dto.request.ForgotPasswordRequestDTO;
+import vn.hoang.datn92demo.dto.request.ForgotPasswordVerifyDTO;
+import vn.hoang.datn92demo.exception.ResourceNotFoundException;
 
 import java.util.Map;
 
@@ -125,4 +128,85 @@ public class AuthController {
             ));
         }
     }
+
+    @Operation(summary = "Gửi OTP khi quên mật khẩu")
+    @PostMapping("/forgot-password")
+    public ResponseEntity<?> forgotPassword(@Valid @RequestBody ForgotPasswordRequestDTO dto) {
+        if (dto == null || dto.getPhone() == null || dto.getPhone().isBlank()) {
+            return ResponseEntity.badRequest().body(Map.of(
+                    "success", false,
+                    "message", "Số điện thoại không hợp lệ!"
+            ));
+        }
+
+        // Giữ privacy: trả same response dù user có tồn tại hay không
+        if (userService.existsByPhone(dto.getPhone())) {
+            try {
+                otpService.sendOtp(dto.getPhone());
+            } catch (Exception e) {
+                // logger.error("Failed to send OTP for forgot-password", e);
+                return ResponseEntity.status(500).body(Map.of(
+                        "success", false,
+                        "message", "Không thể gửi OTP, vui lòng thử lại sau."
+                ));
+            }
+        }
+
+        return ResponseEntity.ok(Map.of(
+                "success", true,
+                "message", "Nếu số điện thoại tồn tại trong hệ thống, mã OTP đã được gửi."
+        ));
+    }
+
+    @Operation(summary = "Xác thực OTP quên mật khẩu và đổi mật khẩu mới")
+    @PostMapping("/forgot-password/verify")
+    public ResponseEntity<?> verifyForgotPassword(@Valid @RequestBody ForgotPasswordVerifyDTO dto) {
+        if (dto == null
+                || dto.getPhone() == null || dto.getPhone().isBlank()
+                || dto.getOtp() == null || dto.getOtp().isBlank()
+                || dto.getNewPassword() == null || dto.getNewPassword().isBlank()) {
+            return ResponseEntity.badRequest().body(Map.of(
+                    "success", false,
+                    "message", "Tham số không hợp lệ!"
+            ));
+        }
+
+        boolean ok;
+        try {
+            ok = otpService.verifyOtp(dto.getPhone(), dto.getOtp());
+        } catch (Exception ex) {
+            ok = false;
+        }
+
+        if (!ok) {
+            return ResponseEntity.badRequest().body(Map.of(
+                    "success", false,
+                    "message", "OTP không hợp lệ hoặc đã hết hạn!"
+            ));
+        }
+
+        try {
+            // Dùng method mới trong UserService để reset password
+            userService.resetPasswordByPhone(dto.getPhone(), dto.getNewPassword());
+        } catch (ResourceNotFoundException rnfe) {
+            // Hiếm khi xảy ra: phone tồn tại khi gửi OTP nhưng user bị xóa sau đó
+            return ResponseEntity.status(404).body(Map.of(
+                    "success", false,
+                    "message", "Người dùng không tồn tại!"
+            ));
+        } catch (Exception ex) {
+            return ResponseEntity.status(500).body(Map.of(
+                    "success", false,
+                    "message", "Lỗi khi lưu mật khẩu mới."
+            ));
+        }
+
+        // (Tuỳ chọn) invalidate JWT hiện tại nếu bạn có hệ thống blacklist token
+
+        return ResponseEntity.ok(Map.of(
+                "success", true,
+                "message", "Đổi mật khẩu thành công!"
+        ));
+    }
+
 }

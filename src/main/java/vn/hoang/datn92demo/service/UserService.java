@@ -163,4 +163,17 @@ public class UserService {
         user.setPassword(passwordEncoder.encode(dto.getNewPassword()));
         userRepository.save(user);
     }
+
+    /**
+     * Reset mật khẩu cho user theo phone (không cần mật khẩu cũ), dùng trong quên mật khẩu.
+     * Nếu user không tồn tại ném ResourceNotFoundException.
+     */
+    public void resetPasswordByPhone(String phone, String newPassword) {
+        User user = userRepository.findByPhone(phone)
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy user với phone: " + phone));
+
+        user.setPassword(passwordEncoder.encode(newPassword));
+        userRepository.save(user);
+    }
+
 }
