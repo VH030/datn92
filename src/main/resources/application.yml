@@ -51,3 +51,9 @@ modem:
 app:
   device:
     api-key: "123456ABC"
+
+weather:
+  api:
+    url: ${api.url:https://api.openweathermap.org/data/2.5/weather}
+    key: ${api.key:c3d975d02f51cd35cecee1bf9b7355a1}
+    timeout-ms: ${api.timeout-ms:5000}
