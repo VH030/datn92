@@ -16,7 +16,6 @@ import java.util.List;
 @RestController
 @RequestMapping("/api/water-levels")
 @Tag(name = "Water Level", description = "API giám sát mực nước")
-@CrossOrigin(origins = "*")
 public class WaterLevelController {
 
     private final WaterLevelService service;

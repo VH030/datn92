@@ -1,5 +1,6 @@
 server:
   port: 8080
+  address: 0.0.0.0
 
 spring:
   datasource:
@@ -37,16 +38,12 @@ springdoc:
   swagger-ui:
     path: /swagger-ui.html
 
-twilio:
-  account-sid: ${TWILIO_ACCOUNT_SID}
-  auth-token: ${TWILIO_AUTH_TOKEN}
-  phone-number: "+17755998198"
 
-modem:
-  port: "COM13"       # Cổng modem E173
-  baudRate: 115200   # Tốc độ chuẩn của Huawei
-  openTimeoutMs: 2000
-  writeDelayMs: 500
+#modem:
+#  port: "COM1"       # Cổng modem E173
+#  baudRate: 115200   # Tốc độ chuẩn của Huawei
+#  openTimeoutMs: 2000
+#  writeDelayMs: 500
 
 app:
   device:
@@ -57,3 +54,7 @@ weather:
     url: ${api.url:https://api.openweathermap.org/data/2.5/weather}
     key: ${api.key:c3d975d02f51cd35cecee1bf9b7355a1}
     timeout-ms: ${api.timeout-ms:5000}
+
+sms-gateway:
+  url: "https://subreniform-garnett-unparticularised.ngrok-free.dev/api/sms-gateway/send-sms"   # LÚC ĐẦU test local
+  api-key: "OPKFPOKFWAOK21412AWFDAWFJ"                   # phải TRÙNG với smsgateway.api-key

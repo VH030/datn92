@@ -3,6 +3,7 @@ package vn.hoang.datn92demo.config;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
@@ -18,7 +19,7 @@ import org.springframework.web.cors.CorsConfigurationSource;
 import java.util.Arrays;
 
 @Configuration
-@EnableMethodSecurity // cho phép dùng @PreAuthorize ở controller/service nếu cần
+@EnableMethodSecurity
 public class SecurityConfig {
 
     @Autowired
@@ -34,39 +35,74 @@ public class SecurityConfig {
         return config.getAuthenticationManager();
     }
 
+    /**
+     * 🔥 CORS CONFIG SỬA THEO CÁCH 2:
+     * - Dùng allowedOriginPatterns()
+     * - Tránh lỗi "*" + allowCredentials = true
+     */
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration config = new CorsConfiguration();
-        // Thêm cả http://localhost:9000 (frontend) và http://localhost:8080 (nếu cần gọi nội bộ)
-        config.setAllowedOrigins(Arrays.asList("http://localhost:9000", "http://localhost:8080"));
-        config.setAllowCredentials(true); // cho phép gửi cookie / Authorization header
+
+        // Dùng allowedOriginPatterns thay cho allowedOrigins
+        config.setAllowedOriginPatterns(Arrays.asList(
+                "http://localhost:9000",
+                "http://localhost:8080",
+                "http://34.87.169.80" // FE trên VM
+                // nếu thêm domain về sau: "https://your-domain.com"
+        ));
+
+        config.setAllowCredentials(true);
         config.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
-        config.setAllowedHeaders(Arrays.asList("Authorization", "Content-Type", "Accept", "Origin", "X-API-KEY"));
-        config.setExposedHeaders(Arrays.asList("Authorization", "Content-Type"));
+        config.setAllowedHeaders(Arrays.asList(
+                "Authorization",
+                "Content-Type",
+                "Accept",
+                "Origin",
+                "X-API-KEY",
+                "X-Requested-With",
+                "Access-Control-Request-Method",
+                "Access-Control-Request-Headers"
+        ));
+        config.setExposedHeaders(Arrays.asList(
+                "Authorization",
+                "X-Total-Count",
+                "X-Refresh-Token",
+                "Content-Disposition"
+        ));
+
+        config.setMaxAge(3600L);
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
-        source.registerCorsConfiguration("/**", config); // áp dụng cho tất cả endpoint
+        source.registerCorsConfiguration("/**", config);
         return source;
     }
 
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+
         http
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
                 .csrf(csrf -> csrf.disable())
                 .authorizeHttpRequests(auth -> auth
-                        // Các endpoint public (không cần JWT)
+
+                        // Quan trọng: Cho phép preflight OPTIONS
+                        .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
+
+                        // Các endpoint public
                         .requestMatchers(
                                 "/swagger-ui/**",
                                 "/swagger-ui.html",
                                 "/v3/api-docs/**",
                                 "/api/auth/**",
-                                "/api/water-levels/device" // endpoint dành cho thiết bị (ESP32) sử dụng API-KEY
+                                "/api/water-levels/device"
                         ).permitAll()
-                        // Các endpoint liên quan đến water-levels (không phải /device) cần ROLE_USER hoặc ROLE_ADMIN
-                        .requestMatchers("/api/water-levels/user/**").hasAnyRole("USER","ADMIN")
+
+                        // Các endpoint yêu cầu phân quyền
+                        .requestMatchers("/api/water-levels/user/**").hasAnyRole("USER", "ADMIN")
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")
                         .requestMatchers("/api/user/**").hasAnyRole("USER", "ADMIN")
+
                         .anyRequest().authenticated()
                 )
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
